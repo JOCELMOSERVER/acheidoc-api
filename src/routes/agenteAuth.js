@@ -19,7 +19,14 @@ router.post('/login', async (req, res, next) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ erro: 'email e password são obrigatórios.' });
 
-    const result = await query('SELECT id, nome, email, password_hash, pontos, status, provincia FROM agentes WHERE email = $1', [email.toLowerCase()]);
+    const result = await query(
+      `SELECT ag.id, ag.nome, ag.email, ag.password_hash, ag.pontos, ag.status, ag.provincia,
+              p.id AS ponto_id, p.nome AS ponto_nome
+       FROM agentes ag
+       LEFT JOIN pontos_entrega p ON p.agente_id = ag.id
+       WHERE ag.email = $1`,
+      [email.toLowerCase()]
+    );
     if (!result.rows.length) return res.status(401).json({ erro: 'Credenciais inválidas.' });
 
     const agente = result.rows[0];
@@ -30,6 +37,10 @@ router.post('/login', async (req, res, next) => {
     if (!ok) return res.status(401).json({ erro: 'Credenciais inválidas.' });
 
     const token = signToken({ id: agente.id, email: agente.email, tipo: 'agente' });
+    agente.pontoId = agente.ponto_id || null;
+    agente.pontoNome = agente.ponto_nome || null;
+    delete agente.ponto_id;
+    delete agente.ponto_nome;
     delete agente.password_hash;
     return res.json({ token, agente });
   } catch (err) {

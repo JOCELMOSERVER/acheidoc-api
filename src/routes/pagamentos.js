@@ -1,14 +1,28 @@
 const router = require('express').Router();
+const crypto = require('crypto');
 const { query } = require('../db');
 const { requireTipo } = require('../middleware/auth');
 const { enviarNotificacaoPagamento } = require('../services/email');
+
+function gerarCodigo(prefixo) {
+  return `${prefixo}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+}
 
 router.post('/', ...requireTipo('utilizador'), async (req, res, next) => {
   try {
     const { doc_id, telefone, valor = 500.0 } = req.body;
     if (!doc_id) return res.status(400).json({ erro: 'doc_id é obrigatório.' });
 
-    const doc = await query('SELECT id FROM documentos WHERE id = $1 AND status = $2', [doc_id, 'PUBLICADO']);
+    const doc = await query(
+      `SELECT d.id, d.ponto_entrega_id, d.codigo_resgate, d.chave_entrega,
+              p.id AS ponto_id, p.nome AS ponto_nome, p.endereco, p.horario, p.telefone,
+              a.nome AS agente_nome
+       FROM documentos d
+       LEFT JOIN pontos_entrega p ON p.id = d.ponto_entrega_id
+       LEFT JOIN agentes a ON a.id = p.agente_id
+       WHERE d.id = $1 AND d.status = $2`,
+      [doc_id, 'PUBLICADO']
+    );
     if (!doc.rows.length) return res.status(404).json({ erro: 'Documento não encontrado ou indisponível para pagamento.' });
 
     const exists = await query(
@@ -21,6 +35,17 @@ router.post('/', ...requireTipo('utilizador'), async (req, res, next) => {
     const entidade = '00282';
     const referencia = doc_id.replace(/\D/g, '').slice(0, 9).padStart(9, '0');
 
+    const documento = doc.rows[0];
+    if (!documento.ponto_id) {
+      return res.status(409).json({ erro: 'Documento sem ponto de entrega configurado.' });
+    }
+    const codigoResgate = documento.codigo_resgate || gerarCodigo('RES');
+    const chaveEntrega = documento.chave_entrega || gerarCodigo('ENT');
+    await query(
+      'UPDATE documentos SET codigo_resgate = $1, chave_entrega = $2 WHERE id = $3',
+      [codigoResgate, chaveEntrega, doc_id]
+    );
+
     const created = await query(
       `INSERT INTO pagamentos (id, doc_id, utilizador_id, valor, entidade, referencia, telefone)
        VALUES ($1,$2,$3,$4,$5,$6,$7)
@@ -28,7 +53,19 @@ router.post('/', ...requireTipo('utilizador'), async (req, res, next) => {
       [id, doc_id, req.user.id, valor, entidade, referencia, telefone || null]
     );
 
-    return res.status(201).json({ pagamento: created.rows[0] });
+    return res.status(201).json({
+      pagamento: created.rows[0],
+      codigo_resgate: codigoResgate,
+      chave_entrega: chaveEntrega,
+      ponto_entrega: documento.ponto_id ? {
+        id: documento.ponto_id,
+        nome: documento.ponto_nome,
+        endereco: documento.endereco,
+        horario: documento.horario,
+        telefone: documento.telefone,
+        agente_nome: documento.agente_nome,
+      } : null,
+    });
   } catch (err) {
     return next(err);
   }

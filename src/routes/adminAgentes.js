@@ -11,15 +11,17 @@ router.get('/', ...requireTipo('admin'), async (req, res, next) => {
 
     if (status) {
       params.push(status);
-      where = `WHERE status = $${params.length}`;
+      where = `WHERE ag.status = $${params.length}`;
     }
 
     params.push(parseInt(limit, 10), offset);
     const result = await query(
-      `SELECT id, nome, email, telefone, pontos, provincia, status, criado_em
-       FROM agentes
+      `SELECT ag.id, ag.nome, ag.email, ag.telefone, ag.pontos, ag.provincia, ag.status, ag.criado_em,
+              p.id AS ponto_id, p.nome AS ponto_nome
+       FROM agentes ag
+       LEFT JOIN pontos_entrega p ON p.agente_id = ag.id
        ${where}
-       ORDER BY criado_em DESC
+       ORDER BY ag.criado_em DESC
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params
     );

@@ -12,6 +12,8 @@ const documentosRoutes = require('./routes/documentos');
 const pagamentosRoutes = require('./routes/pagamentos');
 const adminUtilizadoresRoutes = require('./routes/adminUtilizadores');
 const adminAgentesRoutes = require('./routes/adminAgentes');
+const pontosEntregaRoutes = require('./routes/pontosEntrega');
+const recompensasRoutes = require('./routes/recompensas');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -51,6 +53,8 @@ app.use('/api/admin/auth', authLimiter, adminAuthRoutes);
 
 app.use('/api/documentos', documentosRoutes);
 app.use('/api/pagamentos', pagamentosRoutes);
+app.use('/api/pontos-entrega', pontosEntregaRoutes);
+app.use('/api/recompensas', recompensasRoutes);
 app.use('/api/admin/utilizadores', adminUtilizadoresRoutes);
 app.use('/api/admin/agentes', adminAgentesRoutes);
 
