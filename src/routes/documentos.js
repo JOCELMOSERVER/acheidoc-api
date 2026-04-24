@@ -26,10 +26,11 @@ router.get('/', async (req, res, next) => {
 
     params.push(parseInt(limit, 10), offset);
     const result = await query(
-      `SELECT d.id, d.tipo, d.nome_proprietario, d.provincia, d.foto_url, d.status, d.risco, d.data_publicacao
+      `SELECT d.id, d.tipo, d.nome_proprietario, d.provincia, d.foto_url, d.status, d.risco,
+              d.criado_em AS data_publicacao
        FROM documentos d
        WHERE ${conditions.join(' AND ')}
-       ORDER BY d.data_publicacao DESC
+       ORDER BY d.criado_em DESC
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params
     );
@@ -60,7 +61,7 @@ router.post('/', ...requireTipo('utilizador'), upload.single('foto'), async (req
     const created = await query(
       `INSERT INTO documentos (id, tipo, nome_proprietario, bi, data_nascimento, morada, provincia, foto_url, publicado_por, ponto_entrega_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       RETURNING id, tipo, nome_proprietario, status, data_publicacao`,
+       RETURNING id, tipo, nome_proprietario, status, criado_em AS data_publicacao`,
       [id, tipo, nome_proprietario, bi || null, data_nascimento || null, morada || null, provincia || null, fotoFinal, req.user.id, pontoEntrega.id]
     );
 
@@ -87,7 +88,8 @@ router.get('/meus', ...requireTipo('utilizador'), async (req, res, next) => {
 
     params.push(parseInt(limit, 10), offset);
     const result = await query(
-      `SELECT d.id, d.tipo, d.nome_proprietario, d.provincia, d.foto_url, d.status, d.risco, d.data_publicacao, d.criado_em,
+      `SELECT d.id, d.tipo, d.nome_proprietario, d.provincia, d.foto_url, d.status, d.risco,
+              d.criado_em AS data_publicacao, d.criado_em,
               d.ponto_entrega_id, d.codigo_resgate, d.chave_entrega
        FROM documentos d
        WHERE ${where.join(' AND ')}
@@ -191,7 +193,8 @@ router.get('/agente/lista', ...requireTipo('agente'), async (req, res, next) => 
     }
 
     const result = await query(
-      `SELECT d.id, d.tipo, d.nome_proprietario, d.provincia, d.status, d.risco, d.data_publicacao, d.criado_em,
+      `SELECT d.id, d.tipo, d.nome_proprietario, d.provincia, d.status, d.risco,
+              d.criado_em AS data_publicacao, d.criado_em,
               d.ponto_entrega_id, d.codigo_resgate, d.chave_entrega
        FROM documentos d
        WHERE ${conditions.join(' AND ')}
@@ -230,7 +233,7 @@ router.get('/:id(DOC-[A-Za-z0-9-]+)', async (req, res, next) => {
   try {
     const result = await query(
       `SELECT d.id, d.tipo, d.nome_proprietario, d.bi, d.data_nascimento, d.morada, d.provincia,
-              d.foto_url, d.status, d.risco, d.data_publicacao
+              d.foto_url, d.status, d.risco, d.criado_em AS data_publicacao
        FROM documentos d
        WHERE d.id = $1 AND d.status = 'PUBLICADO'`,
       [req.params.id]
