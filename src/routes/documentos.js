@@ -22,6 +22,10 @@ function getOptionalUser(req) {
   }
 }
 
+function normalizeCode(value) {
+  return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
 router.get('/', async (req, res, next) => {
   try {
     const { tipo, provincia, search, page = 1, limit = 20 } = req.query;
@@ -214,6 +218,37 @@ router.get('/agente/lista', ...requireTipo('agente'), async (req, res, next) => 
       params
     );
     return res.json({ documentos: result.rows });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/agente/codigo/:codigo', ...requireTipo('agente'), async (req, res, next) => {
+  try {
+    const codigo = normalizeCode(req.params.codigo);
+    if (!codigo) return res.status(400).json({ erro: 'Código inválido.' });
+
+    const result = await query(
+      `SELECT d.id, d.tipo, d.nome_proprietario, d.provincia, d.status, d.risco,
+              d.criado_em AS data_publicacao, d.criado_em,
+              d.ponto_entrega_id, d.codigo_resgate, d.chave_entrega
+       FROM documentos d
+       WHERE d.ponto_entrega_id IN (SELECT id FROM pontos_entrega WHERE agente_id = $1)
+         AND (
+           regexp_replace(upper(coalesce(d.codigo_resgate, '')), '[^A-Z0-9]', '', 'g') = $2
+           OR regexp_replace(upper(coalesce(d.chave_entrega, '')), '[^A-Z0-9]', '', 'g') = $2
+           OR regexp_replace(upper(coalesce(d.id, '')), '[^A-Z0-9]', '', 'g') = $2
+         )
+       ORDER BY d.criado_em DESC
+       LIMIT 1`,
+      [req.user.id, codigo]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ erro: 'Documento não encontrado para este código.' });
+    }
+
+    return res.json({ documento: result.rows[0] });
   } catch (err) {
     return next(err);
   }
