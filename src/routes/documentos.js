@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
+const crypto = require('crypto');
 const { query } = require('../db');
 const { requireTipo } = require('../middleware/auth');
 const { enviarNotificacaoDocumento } = require('../services/email');
@@ -24,6 +25,10 @@ function getOptionalUser(req) {
 
 function normalizeCode(value) {
   return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function gerarCodigo(prefixo) {
+  return `${prefixo}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
 }
 
 router.get('/', async (req, res, next) => {
@@ -74,15 +79,17 @@ router.post('/', ...requireTipo('utilizador'), upload.single('foto'), async (req
     }
 
     const id = `DOC-${Date.now()}`;
+    const chaveEntrega = gerarCodigo('ENT');
     const created = await query(
-      `INSERT INTO documentos (id, tipo, nome_proprietario, bi, data_nascimento, morada, provincia, foto_url, publicado_por, ponto_entrega_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       RETURNING id, tipo, nome_proprietario, status, criado_em AS data_publicacao`,
-      [id, tipo, nome_proprietario, bi || null, data_nascimento || null, morada || null, provincia || null, fotoFinal, req.user.id, pontoEntrega.id]
+      `INSERT INTO documentos (id, tipo, nome_proprietario, bi, data_nascimento, morada, provincia, foto_url, publicado_por, ponto_entrega_id, chave_entrega)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       RETURNING id, tipo, nome_proprietario, status, criado_em AS data_publicacao, chave_entrega`,
+      [id, tipo, nome_proprietario, bi || null, data_nascimento || null, morada || null, provincia || null, fotoFinal, req.user.id, pontoEntrega.id, chaveEntrega]
     );
 
     return res.status(201).json({
       documento: created.rows[0],
+      chave_entrega: chaveEntrega,
       ponto_entrega: pontoEntrega,
     });
   } catch (err) {
@@ -211,8 +218,10 @@ router.get('/agente/lista', ...requireTipo('agente'), async (req, res, next) => 
     const result = await query(
       `SELECT d.id, d.tipo, d.nome_proprietario, d.provincia, d.status, d.risco,
               d.criado_em AS data_publicacao, d.criado_em,
-              d.ponto_entrega_id, d.codigo_resgate, d.chave_entrega
+              d.ponto_entrega_id, d.codigo_resgate, d.chave_entrega,
+              u.nome AS publicado_por_nome
        FROM documentos d
+       LEFT JOIN utilizadores u ON u.id = d.publicado_por
        WHERE ${conditions.join(' AND ')}
        ORDER BY d.criado_em DESC`,
       params
@@ -231,8 +240,10 @@ router.get('/agente/codigo/:codigo', ...requireTipo('agente'), async (req, res, 
     const result = await query(
       `SELECT d.id, d.tipo, d.nome_proprietario, d.provincia, d.status, d.risco,
               d.criado_em AS data_publicacao, d.criado_em,
-              d.ponto_entrega_id, d.codigo_resgate, d.chave_entrega
+              d.ponto_entrega_id, d.codigo_resgate, d.chave_entrega,
+              u.nome AS publicado_por_nome
        FROM documentos d
+       LEFT JOIN utilizadores u ON u.id = d.publicado_por
        WHERE d.ponto_entrega_id IN (SELECT id FROM pontos_entrega WHERE agente_id = $1)
          AND (
            regexp_replace(upper(coalesce(d.codigo_resgate, '')), '[^A-Z0-9]', '', 'g') = $2
