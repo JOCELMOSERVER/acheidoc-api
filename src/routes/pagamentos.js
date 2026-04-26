@@ -110,6 +110,16 @@ router.patch('/admin/:id/confirmar', ...requireTipo('admin'), async (req, res, n
     if (!updated.rows.length) return res.status(404).json({ erro: 'Pagamento não encontrado.' });
 
     const p = updated.rows[0];
+    await query(
+      `UPDATE documentos
+       SET status = CASE
+         WHEN status IN ('PUBLICADO', 'PENDENTE') THEN 'AGUARDANDO_ENTREGA'
+         ELSE status
+       END
+       WHERE id = $1`,
+      [p.doc_id]
+    );
+
     const userInfo = await query(
       `SELECT u.email, u.nome, d.tipo
        FROM pagamentos p
