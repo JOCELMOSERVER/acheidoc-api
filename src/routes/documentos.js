@@ -1,4 +1,5 @@
 const router = require('express').Router();
+const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const { query } = require('../db');
 const { requireTipo } = require('../middleware/auth');
@@ -9,6 +10,17 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
 });
+
+function getOptionalUser(req) {
+  const authHeader = req.headers.authorization || '';
+  if (!authHeader.startsWith('Bearer ')) return null;
+
+  try {
+    return jwt.verify(authHeader.slice(7), process.env.JWT_SECRET);
+  } catch (err) {
+    return null;
+  }
+}
 
 router.get('/', async (req, res, next) => {
   try {
@@ -219,15 +231,23 @@ router.patch('/agente/:id', ...requireTipo('agente'), async (req, res, next) => 
        WHERE id = $2
          AND ponto_entrega_id IN (SELECT id FROM pontos_entrega WHERE agente_id = $3)
        RETURNING id, status`,
-      [status, req.params.id, req.user.id]
+      [stauser = getOptionalUser(req);
+    const result = await query(
+      `SELECT d.id, d.tipo, d.nome_proprietario, d.bi, d.data_nascimento, d.morada, d.provincia,
+              d.foto_url, d.status, d.risco, d.criado_em AS data_publicacao, d.publicado_por
+       FROM documentos d
+       WHERE d.id = $1
+         AND (
+           d.status = 'PUBLICADO'
+           OR ($2::uuid IS NOT NULL AND d.publicado_por = $2::uuid)
+         )`,
+      [req.params.id, user && user.tipo === 'utilizador' ? user.id : null]
     );
     if (!result.rows.length) return res.status(404).json({ erro: 'Documento não encontrado.' });
 
-    return res.json({ documento: result.rows[0] });
-  } catch (err) {
-    return next(err);
-  }
-});
+    const documento = result.rows[0];
+    delete documento.publicado_por;
+    return res.json({ documento: documento
 
 router.get('/:id(DOC-[A-Za-z0-9-]+)', async (req, res, next) => {
   try {

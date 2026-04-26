@@ -1,5 +1,6 @@
 const router = require('express').Router();
-const { query } = require('../db');
+const bcrypt = require('bcryptjs');
+const { pool, query } = require('../db');
 const { requireTipo } = require('../middleware/auth');
 
 router.get('/', ...requireTipo('admin'), async (req, res, next) => {
@@ -29,6 +30,94 @@ router.get('/', ...requireTipo('admin'), async (req, res, next) => {
     return res.json({ agentes: result.rows });
   } catch (err) {
     return next(err);
+  }
+});
+
+router.post('/', ...requireTipo('admin'), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const {
+      nome,
+      email,
+      telefone,
+      provincia,
+      ponto_id,
+      password,
+    } = req.body || {};
+
+    if (!nome || !email || !telefone) {
+      return res.status(400).json({ erro: 'nome, email e telefone são obrigatórios.' });
+    }
+
+    const emailNorm = String(email).trim().toLowerCase();
+    const nomeNorm = String(nome).trim();
+    const telefoneNorm = String(telefone).trim();
+    const provinciaNorm = provincia ? String(provincia).trim() : null;
+    const senhaInicial = password ? String(password).trim() : '123456';
+
+    if (!senhaInicial || senhaInicial.length < 6) {
+      return res.status(400).json({ erro: 'password deve ter pelo menos 6 caracteres.' });
+    }
+
+    await client.query('BEGIN');
+
+    if (ponto_id) {
+      const ponto = await client.query(
+        'SELECT id, nome, agente_id FROM pontos_entrega WHERE id = $1 FOR UPDATE',
+        [ponto_id]
+      );
+
+      if (!ponto.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ erro: 'Ponto de entrega não encontrado.' });
+      }
+
+      if (ponto.rows[0].agente_id) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ erro: 'Este ponto de entrega já está atribuído a outro agente.' });
+      }
+    }
+
+    const passwordHash = await bcrypt.hash(senhaInicial, 12);
+    const created = await client.query(
+      `INSERT INTO agentes (nome, email, telefone, password_hash, provincia, status)
+       VALUES ($1, $2, $3, $4, $5, 'ATIVO')
+       RETURNING id`,
+      [nomeNorm, emailNorm, telefoneNorm, passwordHash, provinciaNorm]
+    );
+
+    const agenteId = created.rows[0].id;
+
+    if (ponto_id) {
+      await client.query('UPDATE pontos_entrega SET agente_id = $1 WHERE id = $2', [agenteId, ponto_id]);
+    }
+
+    const result = await client.query(
+      `SELECT ag.id, ag.nome, ag.email, ag.telefone, ag.pontos, ag.provincia, ag.status, ag.criado_em,
+              p.id AS ponto_id, p.nome AS ponto_nome
+       FROM agentes ag
+       LEFT JOIN pontos_entrega p ON p.agente_id = ag.id
+       WHERE ag.id = $1`,
+      [agenteId]
+    );
+
+    await client.query('COMMIT');
+
+    return res.status(201).json({
+      agente: result.rows[0],
+      credenciais_iniciais: {
+        email: emailNorm,
+        password: senhaInicial,
+      },
+    });
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (rollbackErr) {}
+    if (err && err.code === '23505') {
+      return res.status(409).json({ erro: 'Email já registado para outro agente.' });
+    }
+    return next(err);
+  } finally {
+    client.release();
   }
 });
 

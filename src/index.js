@@ -4,6 +4,8 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const bcrypt = require('bcryptjs');
+const { query } = require('./db');
 
 const authRoutes = require('./routes/auth');
 const agenteAuthRoutes = require('./routes/agenteAuth');
@@ -24,9 +26,44 @@ function parseCorsOrigins(value) {
   return value.split(',').map((v) => v.trim()).filter(Boolean);
 }
 
+function createCorsOriginChecker(allowedOrigins) {
+  if (allowedOrigins === '*') return true;
+
+  return (origin, callback) => {
+    // Permite chamadas sem Origin (file://, mobile webview, Postman)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('Origem não permitida por CORS'));
+  };
+}
+
+async function bootstrapAdminFromEnv() {
+  const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  const adminPassword = process.env.ADMIN_PASSWORD || '';
+  const adminNome = (process.env.ADMIN_NOME || 'Administrador').trim();
+
+  if (!adminEmail || !adminPassword) {
+    console.warn('ADMIN_EMAIL/ADMIN_PASSWORD não definidos. Bootstrap de admin ignorado.');
+    return;
+  }
+
+  const existing = await query('SELECT id FROM admin WHERE email = $1', [adminEmail]);
+  const passwordHash = await bcrypt.hash(adminPassword, 12);
+
+  if (existing.rows.length) {
+    await query('UPDATE admin SET nome = $1, password_hash = $2 WHERE email = $3', [adminNome, passwordHash, adminEmail]);
+    console.log(`Admin actualizado via env: ${adminEmail}`);
+    return;
+  }
+
+  await query('INSERT INTO admin (nome, email, password_hash) VALUES ($1, $2, $3)', [adminNome, adminEmail, passwordHash]);
+  console.log(`Admin criado via env: ${adminEmail}`);
+}
+
 app.use(helmet());
+const allowedOrigins = parseCorsOrigins(process.env.CORS_ORIGIN);
 app.use(cors({
-  origin: parseCorsOrigins(process.env.CORS_ORIGIN),
+  origin: createCorsOriginChecker(allowedOrigins),
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
@@ -69,6 +106,16 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`AcheiDoc API em http://localhost:${PORT}`);
-});
+async function start() {
+  try {
+    await bootstrapAdminFromEnv();
+    app.listen(PORT, () => {
+      console.log(`AcheiDoc API em http://localhost:${PORT}`);
+    });
+  } catch (err) {
+    console.error('Falha ao iniciar a API:', err.message);
+    process.exit(1);
+  }
+}
+
+start();
