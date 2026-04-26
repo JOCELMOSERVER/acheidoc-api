@@ -115,6 +115,11 @@ router.post('/', ...requireTipo('admin'), async (req, res, next) => {
     if (err && err.code === '23505') {
       return res.status(409).json({ erro: 'Email já registado para outro agente.' });
     }
+    if (err && err.code === '42703') {
+      return res.status(500).json({
+        erro: 'Schema da base de dados incompatível. Este backend usa pontos_entrega.agente_id (não agentes.ponto_id).',
+      });
+    }
     return next(err);
   } finally {
     client.release();
