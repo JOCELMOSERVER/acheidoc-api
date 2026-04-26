@@ -2,7 +2,7 @@ const router = require('express').Router();
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const crypto = require('crypto');
-const { query } = require('../db');
+const { pool, query } = require('../db');
 const { requireTipo } = require('../middleware/auth');
 const { enviarNotificacaoDocumento } = require('../services/email');
 const { findNearestPoint } = require('../services/pontosEntrega');
@@ -268,24 +268,64 @@ router.get('/agente/codigo/:codigo', ...requireTipo('agente'), async (req, res, 
 });
 
 router.patch('/agente/:id', ...requireTipo('agente'), async (req, res, next) => {
+  const client = await pool.connect();
   try {
     const { status } = req.body;
     const valid = ['DISPONIVEL_LEVANTAMENTO', 'ENTREGUE'];
     if (!valid.includes(status)) return res.status(400).json({ erro: 'Status inválido.' });
 
-    const result = await query(
-      `UPDATE documentos
-       SET status = $1
-       WHERE id = $2
-         AND ponto_entrega_id IN (SELECT id FROM pontos_entrega WHERE agente_id = $3)
-       RETURNING id, status`,
-      [status, req.params.id, req.user.id]
-    );
-    if (!result.rows.length) return res.status(404).json({ erro: 'Documento não encontrado ou não pertence ao seu ponto.' });
+    await client.query('BEGIN');
 
-    return res.json({ documento: result.rows[0] });
+    const docResult = await client.query(
+      `SELECT d.id, d.status, d.publicado_por
+       FROM documentos d
+       WHERE d.id = $1
+         AND d.ponto_entrega_id IN (SELECT id FROM pontos_entrega WHERE agente_id = $2)
+       FOR UPDATE`,
+      [req.params.id, req.user.id]
+    );
+
+    if (!docResult.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ erro: 'Documento não encontrado ou não pertence ao seu ponto.' });
+    }
+
+    const doc = docResult.rows[0];
+    const statusAtual = doc.status;
+
+    if (statusAtual !== status) {
+      await client.query(
+        `UPDATE documentos
+         SET status = $1
+         WHERE id = $2`,
+        [status, req.params.id]
+      );
+
+      var pontosDelta = 0;
+      if (status === 'DISPONIVEL_LEVANTAMENTO' && ['PUBLICADO', 'PENDENTE', 'CORRECAO_SOLICITADA', 'AGUARDANDO_ENTREGA'].includes(statusAtual)) {
+        pontosDelta = 10;
+      } else if (status === 'ENTREGUE' && statusAtual === 'DISPONIVEL_LEVANTAMENTO') {
+        pontosDelta = 60;
+      }
+
+      if (pontosDelta > 0 && doc.publicado_por) {
+        await client.query(
+          `UPDATE utilizadores
+           SET pontos = pontos + $1
+           WHERE id = $2`,
+          [pontosDelta, doc.publicado_por]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+
+    return res.json({ documento: { id: req.params.id, status } });
   } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (rollbackErr) {}
     return next(err);
+  } finally {
+    client.release();
   }
 });
 
