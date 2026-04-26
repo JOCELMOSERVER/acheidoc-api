@@ -20,8 +20,12 @@ router.post('/', ...requireTipo('utilizador'), async (req, res, next) => {
        FROM documentos d
        LEFT JOIN pontos_entrega p ON p.id = d.ponto_entrega_id
        LEFT JOIN agentes a ON a.id = p.agente_id
-       WHERE d.id = $1 AND d.status = $2`,
-      [doc_id, 'PUBLICADO']
+       WHERE d.id = $1
+         AND (
+           d.status = 'PUBLICADO'
+           OR (d.status = 'DISPONIVEL_LEVANTAMENTO' AND (d.codigo_resgate IS NULL OR d.codigo_resgate = ''))
+         )`,
+      [doc_id]
     );
     if (!doc.rows.length) return res.status(404).json({ erro: 'Documento não encontrado ou indisponível para pagamento.' });
 
@@ -113,7 +117,7 @@ router.patch('/admin/:id/confirmar', ...requireTipo('admin'), async (req, res, n
     await query(
       `UPDATE documentos
        SET status = CASE
-         WHEN status IN ('PUBLICADO', 'PENDENTE') THEN 'AGUARDANDO_ENTREGA'
+         WHEN status IN ('PUBLICADO', 'PENDENTE', 'DISPONIVEL_LEVANTAMENTO') THEN 'AGUARDANDO_ENTREGA'
          ELSE status
        END
        WHERE id = $1`,

@@ -36,7 +36,9 @@ router.get('/', async (req, res, next) => {
     const { tipo, provincia, search, page = 1, limit = 20 } = req.query;
     const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
     const params = [];
-    const conditions = ["d.status = 'PUBLICADO'"];
+    const conditions = [
+      "(d.status = 'PUBLICADO' OR (d.status = 'DISPONIVEL_LEVANTAMENTO' AND (d.codigo_resgate IS NULL OR d.codigo_resgate = '')))"
+    ];
 
     if (tipo) { params.push(tipo); conditions.push(`d.tipo = $${params.length}`); }
     if (provincia) { params.push(provincia); conditions.push(`d.provincia = $${params.length}`); }
@@ -297,6 +299,7 @@ router.get('/:id(DOC-[A-Za-z0-9-]+)', async (req, res, next) => {
        WHERE d.id = $1
          AND (
            d.status = 'PUBLICADO'
+           OR (d.status = 'DISPONIVEL_LEVANTAMENTO' AND (d.codigo_resgate IS NULL OR d.codigo_resgate = ''))
            OR ($2::uuid IS NOT NULL AND d.publicado_por = $2::uuid)
          )`,
       [req.params.id, user && user.tipo === 'utilizador' ? user.id : null]
