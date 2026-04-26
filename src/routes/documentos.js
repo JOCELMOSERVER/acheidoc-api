@@ -231,7 +231,19 @@ router.patch('/agente/:id', ...requireTipo('agente'), async (req, res, next) => 
        WHERE id = $2
          AND ponto_entrega_id IN (SELECT id FROM pontos_entrega WHERE agente_id = $3)
        RETURNING id, status`,
-      [stauser = getOptionalUser(req);
+      [status, req.params.id, req.user.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ erro: 'Documento não encontrado ou não pertence ao seu ponto.' });
+
+    return res.json({ documento: result.rows[0] });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/:id(DOC-[A-Za-z0-9-]+)', async (req, res, next) => {
+  try {
+    const user = getOptionalUser(req);
     const result = await query(
       `SELECT d.id, d.tipo, d.nome_proprietario, d.bi, d.data_nascimento, d.morada, d.provincia,
               d.foto_url, d.status, d.risco, d.criado_em AS data_publicacao, d.publicado_por
@@ -247,19 +259,8 @@ router.patch('/agente/:id', ...requireTipo('agente'), async (req, res, next) => 
 
     const documento = result.rows[0];
     delete documento.publicado_por;
-    return res.json({ documento: documento
 
-router.get('/:id(DOC-[A-Za-z0-9-]+)', async (req, res, next) => {
-  try {
-    const result = await query(
-      `SELECT d.id, d.tipo, d.nome_proprietario, d.bi, d.data_nascimento, d.morada, d.provincia,
-              d.foto_url, d.status, d.risco, d.criado_em AS data_publicacao
-       FROM documentos d
-       WHERE d.id = $1 AND d.status = 'PUBLICADO'`,
-      [req.params.id]
-    );
-    if (!result.rows.length) return res.status(404).json({ erro: 'Documento não encontrado.' });
-    return res.json({ documento: result.rows[0] });
+    return res.json({ documento });
   } catch (err) {
     return next(err);
   }
