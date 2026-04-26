@@ -16,6 +16,7 @@ const adminUtilizadoresRoutes = require('./routes/adminUtilizadores');
 const adminAgentesRoutes = require('./routes/adminAgentes');
 const pontosEntregaRoutes = require('./routes/pontosEntrega');
 const recompensasRoutes = require('./routes/recompensas');
+const statsRoutes = require('./routes/stats');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -92,6 +93,7 @@ app.use('/api/documentos', documentosRoutes);
 app.use('/api/pagamentos', pagamentosRoutes);
 app.use('/api/pontos-entrega', pontosEntregaRoutes);
 app.use('/api/recompensas', recompensasRoutes);
+app.use('/api/stats', statsRoutes);
 app.use('/api/admin/utilizadores', adminUtilizadoresRoutes);
 app.use('/api/admin/agentes', adminAgentesRoutes);
 
